@@ -105,25 +105,8 @@ public class App {
                         || !telefono.matches("[0-9]{6,15}") || !(servicio.equals("1") || servicio.equals("2"))) {
                     error(e, 400, "Datos de paciente o servicio inválidos"); return;
                 }
-                try {
-                    LocalDate.parse(fecha);
-                    LocalTime h = LocalTime.parse(hora);
-                    int duracion = servicio.equals("1") ? 30 : 60;
-                    if (h.getMinute() % 30 != 0 || h.getSecond() != 0 || h.isBefore(LocalTime.of(9, 0))
-                            || h.plusMinutes(duracion).isAfter(LocalTime.of(18, 0))) {
-                        error(e, 400, "Fecha u horario fuera de la agenda"); return;
-                    }
-                } catch (Exception ex) { error(e, 400, "Fecha u horario inválidos"); return; }
-                for (Map<String, String> t : turnos) {
-                    if (t.get("fecha").equals(fecha) && !t.get("estado").equals("CANCELADO")) {
-                        int nuevoInicio = LocalTime.parse(hora).toSecondOfDay() / 60;
-                        int nuevoFin = nuevoInicio + (servicio.equals("1") ? 30 : 60);
-                        int anteriorInicio = LocalTime.parse(t.get("hora")).toSecondOfDay() / 60;
-                        int anteriorFin = anteriorInicio + (t.get("servicioId").equals("1") ? 30 : 60);
-                        if (nuevoInicio < anteriorFin && anteriorInicio < nuevoFin) {
-                            error(e, 409, "El horario se superpone con otro turno"); return;
-                        }
-                    }
+                if (!validarDisponibilidad(e, fecha, hora, servicio, null)) {
+                    return;
                 }
                 Map<String, String> t = new HashMap<>();
                 t.put("id", String.valueOf(proximoId++)); t.put("paciente", paciente); t.put("telefono", telefono);
@@ -145,25 +128,8 @@ public class App {
             }
             String fecha = datos.getOrDefault("fecha", "");
             String hora = datos.getOrDefault("hora", "");
-            try {
-                LocalDate.parse(fecha);
-                LocalTime h = LocalTime.parse(hora);
-                int duracion = encontrado.get("servicioId").equals("1") ? 30 : 60;
-                if (h.getMinute() % 30 != 0 || h.getSecond() != 0 || h.isBefore(LocalTime.of(9, 0))
-                        || h.plusMinutes(duracion).isAfter(LocalTime.of(18, 0))) {
-                    error(e, 400, "Fecha u horario fuera de la agenda"); return;
-                }
-            } catch (Exception ex) { error(e, 400, "Fecha u horario inválidos"); return; }
-            for (Map<String, String> t : turnos) {
-                if (t != encontrado && t.get("fecha").equals(fecha) && !t.get("estado").equals("CANCELADO")) {
-                    int nuevoInicio = LocalTime.parse(hora).toSecondOfDay() / 60;
-                    int nuevoFin = nuevoInicio + (encontrado.get("servicioId").equals("1") ? 30 : 60);
-                    int anteriorInicio = LocalTime.parse(t.get("hora")).toSecondOfDay() / 60;
-                    int anteriorFin = anteriorInicio + (t.get("servicioId").equals("1") ? 30 : 60);
-                    if (nuevoInicio < anteriorFin && anteriorInicio < nuevoFin) {
-                        error(e, 409, "El horario se superpone con otro turno"); return;
-                    }
-                }
+            if (!validarDisponibilidad(e, fecha, hora, encontrado.get("servicioId"), encontrado)) {
+                return;
             }
             encontrado.put("fecha", fecha); encontrado.put("hora", hora); guardar();
             responder(e, 200, "{\"ok\":true,\"mensaje\":\"Turno reprogramado\"}", "application/json; charset=utf-8"); return;
@@ -180,6 +146,43 @@ public class App {
             return;
         }
         error(e, 404, "Recurso inexistente");
+    }
+
+
+    private boolean validarDisponibilidad(HttpExchange e, String fecha, String hora,
+            String servicioId, Map<String, String> turnoActual) throws IOException {
+        LocalTime inicio;
+        try {
+            LocalDate.parse(fecha);
+            inicio = LocalTime.parse(hora);
+        } catch (java.time.format.DateTimeParseException ex) {
+            error(e, 400, "Fecha u horario inválidos");
+            return false;
+        }
+
+        int duracion = servicioId.equals("1") ? 30 : 60;
+        if (inicio.getMinute() % 30 != 0 || inicio.getSecond() != 0
+                || inicio.isBefore(LocalTime.of(9, 0))
+                || inicio.plusMinutes(duracion).isAfter(LocalTime.of(18, 0))) {
+            error(e, 400, "Fecha u horario fuera de la agenda");
+            return false;
+        }
+
+        int nuevoInicio = inicio.toSecondOfDay() / 60;
+        int nuevoFin = nuevoInicio + duracion;
+        for (Map<String, String> turno : turnos) {
+            if (turno == turnoActual || !turno.get("fecha").equals(fecha)
+                    || turno.get("estado").equals("CANCELADO")) {
+                continue;
+            }
+            int anteriorInicio = LocalTime.parse(turno.get("hora")).toSecondOfDay() / 60;
+            int anteriorFin = anteriorInicio + (turno.get("servicioId").equals("1") ? 30 : 60);
+            if (nuevoInicio < anteriorFin && anteriorInicio < nuevoFin) {
+                error(e, 409, "El horario se superpone con otro turno");
+                return false;
+            }
+        }
+        return true;
     }
 
     private void guardar() throws IOException {
