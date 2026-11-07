@@ -18,7 +18,7 @@ import java.util.Map;
  * Atiende las solicitudes HTTP y guarda las reservas en un archivo local.
  */
 public class App {
-    private final List<Map<String, String>> turnos = new ArrayList<>();
+    private final List<Turno> turnos = new ArrayList<>();
     private final Path archivo;
     private int proximoId = 1;
 
@@ -27,16 +27,10 @@ public class App {
         if (Files.exists(archivo)) {
             for (String linea : Files.readAllLines(archivo, StandardCharsets.UTF_8)) {
                 if (linea.isBlank()) continue;
-                String[] c = linea.split("\\|", -1);
-                if (c.length != 7) continue;
-                Map<String, String> turno = new HashMap<>();
-                turno.put("id", c[0]); turno.put("paciente", c[1]);
-                turno.put("telefono", c[2]); turno.put("servicioId", c[3]);
-                turno.put("fecha", c[4]); turno.put("hora", c[5]);
-                turno.put("estado", c[6]);
+                if (linea.split("\\|", -1).length != 7) continue;
+                Turno turno = Turno.desdeLinea(linea);
                 turnos.add(turno);
-                try { proximoId = Math.max(proximoId, Integer.parseInt(c[0]) + 1); }
-                catch (NumberFormatException ignored) { /* Datos viejos */ }
+                proximoId = Math.max(proximoId, turno.id() + 1);
             }
         }
     }
@@ -72,17 +66,17 @@ public class App {
         if (ruta.equals("/api/turnos") && metodo.equals("GET")) {
             StringBuilder salida = new StringBuilder("{\"turnos\":[");
             for (int i = 0; i < turnos.size(); i++) {
-                Map<String, String> t = turnos.get(i);
+                Turno t = turnos.get(i);
                 if (i > 0) salida.append(',');
-                salida.append("{\"id\":").append(t.get("id"))
-                    .append(",\"paciente\":\"").append(esc(t.get("paciente")))
-                    .append("\",\"telefono\":\"").append(esc(t.get("telefono")))
-                    .append("\",\"servicioId\":").append(t.get("servicioId"))
-                    .append(",\"servicio\":\"").append(t.get("servicioId").equals("1") ? "Consulta podológica" : "Tratamiento podológico")
-                    .append("\",\"fecha\":\"").append(esc(t.get("fecha")))
-                    .append("\",\"hora\":\"").append(esc(t.get("hora")))
-                    .append("\",\"duracionMinutos\":").append(t.get("servicioId").equals("1") ? "30" : "60")
-                    .append(",\"estado\":\"").append(t.get("estado")).append("\"}");
+                salida.append("{\"id\":").append(t.id())
+                    .append(",\"paciente\":\"").append(esc(t.paciente().nombre()))
+                    .append("\",\"telefono\":\"").append(esc(t.paciente().telefono()))
+                    .append("\",\"servicioId\":").append(t.servicio().id)
+                    .append(",\"servicio\":\"").append(t.servicio().nombre)
+                    .append("\",\"fecha\":\"").append(esc(t.fecha().toString()))
+                    .append("\",\"hora\":\"").append(esc(t.hora().toString()))
+                    .append("\",\"duracionMinutos\":").append(t.servicio().duracionMinutos)
+                    .append(",\"estado\":\"").append(t.estado()).append("\"}");
             }
             salida.append("]}");
             responder(e, 200, salida.toString(), "application/json; charset=utf-8"); return;
@@ -105,33 +99,35 @@ public class App {
                         || !telefono.matches("[0-9]{6,15}") || !(servicio.equals("1") || servicio.equals("2"))) {
                     error(e, 400, "Datos de paciente o servicio inválidos"); return;
                 }
-                if (!validarDisponibilidad(e, fecha, hora, servicio, null)) {
+                if (!validarDisponibilidad(e, fecha, hora, Servicio.porId(Integer.parseInt(servicio)), null)) {
                     return;
                 }
-                Map<String, String> t = new HashMap<>();
-                t.put("id", String.valueOf(proximoId++)); t.put("paciente", paciente); t.put("telefono", telefono);
-                t.put("servicioId", servicio); t.put("fecha", fecha); t.put("hora", hora); t.put("estado", "PENDIENTE");
+                Turno t = new Turno(proximoId++, new Paciente(paciente, telefono),
+                        Servicio.porId(Integer.parseInt(servicio)), LocalDate.parse(fecha),
+                        LocalTime.parse(hora), EstadoTurno.PENDIENTE);
                 turnos.add(t);
                 guardar();
-                responder(e, 201, "{\"ok\":true,\"mensaje\":\"Turno reservado\",\"id\":" + t.get("id") + "}", "application/json; charset=utf-8"); return;
+                responder(e, 201, "{\"ok\":true,\"mensaje\":\"Turno reservado\",\"id\":" + t.id() + "}", "application/json; charset=utf-8"); return;
             }
             int id;
             try { id = Integer.parseInt(datos.getOrDefault("id", "")); }
             catch (Exception ex) { error(e, 400, "ID inválido"); return; }
-            Map<String, String> encontrado = null;
-            for (Map<String, String> t : turnos) if (Integer.parseInt(t.get("id")) == id) { encontrado = t; break; }
+            Turno encontrado = null;
+            for (Turno t : turnos) if (t.id() == id) { encontrado = t; break; }
             if (encontrado == null) { error(e, 404, "Turno inexistente"); return; }
-            if (encontrado.get("estado").equals("CANCELADO")) { error(e, 409, "El turno ya está cancelado"); return; }
+            if (encontrado.estado() == EstadoTurno.CANCELADO) { error(e, 409, "El turno ya está cancelado"); return; }
             if (ruta.equals("/api/turnos/cancelar")) {
-                encontrado.put("estado", "CANCELADO"); guardar();
+                turnos.set(turnos.indexOf(encontrado), encontrado.cancelar());
+                guardar();
                 responder(e, 200, "{\"ok\":true,\"mensaje\":\"Turno cancelado\"}", "application/json; charset=utf-8"); return;
             }
             String fecha = datos.getOrDefault("fecha", "");
             String hora = datos.getOrDefault("hora", "");
-            if (!validarDisponibilidad(e, fecha, hora, encontrado.get("servicioId"), encontrado)) {
+            if (!validarDisponibilidad(e, fecha, hora, encontrado.servicio(), encontrado)) {
                 return;
             }
-            encontrado.put("fecha", fecha); encontrado.put("hora", hora); guardar();
+            turnos.set(turnos.indexOf(encontrado), encontrado.reprogramar(LocalDate.parse(fecha), LocalTime.parse(hora)));
+            guardar();
             responder(e, 200, "{\"ok\":true,\"mensaje\":\"Turno reprogramado\"}", "application/json; charset=utf-8"); return;
         }
         if (metodo.equals("GET") && (ruta.equals("/") || ruta.equals("/app.js") || ruta.equals("/style.css"))) {
@@ -150,17 +146,18 @@ public class App {
 
 
     private boolean validarDisponibilidad(HttpExchange e, String fecha, String hora,
-            String servicioId, Map<String, String> turnoActual) throws IOException {
+            Servicio servicio, Turno turnoActual) throws IOException {
+        LocalDate dia;
         LocalTime inicio;
         try {
-            LocalDate.parse(fecha);
+            dia = LocalDate.parse(fecha);
             inicio = LocalTime.parse(hora);
         } catch (java.time.format.DateTimeParseException ex) {
             error(e, 400, "Fecha u horario inválidos");
             return false;
         }
 
-        int duracion = servicioId.equals("1") ? 30 : 60;
+        int duracion = servicio.duracionMinutos;
         if (inicio.getMinute() % 30 != 0 || inicio.getSecond() != 0
                 || inicio.isBefore(LocalTime.of(9, 0))
                 || inicio.plusMinutes(duracion).isAfter(LocalTime.of(18, 0))) {
@@ -168,16 +165,8 @@ public class App {
             return false;
         }
 
-        int nuevoInicio = inicio.toSecondOfDay() / 60;
-        int nuevoFin = nuevoInicio + duracion;
-        for (Map<String, String> turno : turnos) {
-            if (turno == turnoActual || !turno.get("fecha").equals(fecha)
-                    || turno.get("estado").equals("CANCELADO")) {
-                continue;
-            }
-            int anteriorInicio = LocalTime.parse(turno.get("hora")).toSecondOfDay() / 60;
-            int anteriorFin = anteriorInicio + (turno.get("servicioId").equals("1") ? 30 : 60);
-            if (nuevoInicio < anteriorFin && anteriorInicio < nuevoFin) {
+        for (Turno turno : turnos) {
+            if (turno != turnoActual && turno.seSolapa(dia, inicio, duracion)) {
                 error(e, 409, "El horario se superpone con otro turno");
                 return false;
             }
@@ -188,8 +177,7 @@ public class App {
     private void guardar() throws IOException {
         if (archivo.getParent() != null) Files.createDirectories(archivo.getParent());
         List<String> lineas = new ArrayList<>();
-        for (Map<String, String> t : turnos) lineas.add(String.join("|", t.get("id"), t.get("paciente"), t.get("telefono"),
-                t.get("servicioId"), t.get("fecha"), t.get("hora"), t.get("estado")));
+        for (Turno turno : turnos) lineas.add(turno.lineaPersistencia());
         Files.write(archivo, lineas, StandardCharsets.UTF_8);
     }
 
