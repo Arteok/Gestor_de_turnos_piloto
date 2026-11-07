@@ -90,24 +90,17 @@ public class App {
                 datos.put(URLDecoder.decode(kv[0], StandardCharsets.UTF_8), URLDecoder.decode(kv.length > 1 ? kv[1] : "", StandardCharsets.UTF_8));
             }
             if (ruta.equals("/api/turnos")) {
-                String paciente = datos.getOrDefault("paciente", "").trim();
-                String telefono = datos.getOrDefault("telefono", "").trim();
-                String servicio = datos.getOrDefault("servicioId", "");
-                String fecha = datos.getOrDefault("fecha", "");
-                String hora = datos.getOrDefault("hora", "");
-                if (paciente.length() < 2 || paciente.length() > 80 || paciente.contains("|") || paciente.contains("\n") || paciente.contains("\r")
-                        || !telefono.matches("[0-9]{6,15}") || !(servicio.equals("1") || servicio.equals("2"))) {
-                    error(e, 400, "Datos de paciente o servicio inválidos"); return;
-                }
-                if (!validarDisponibilidad(e, fecha, hora, Servicio.porId(Integer.parseInt(servicio)), null)) {
+                String servicioId = datos.getOrDefault("servicioId", "");
+                if (!servicioId.equals("1") && !servicioId.equals("2")) {
+                    error(e, 400, "Datos de paciente o servicio inválidos");
                     return;
                 }
-                Turno t = new Turno(proximoId++, new Paciente(paciente, telefono),
-                        Servicio.porId(Integer.parseInt(servicio)), LocalDate.parse(fecha),
-                        LocalTime.parse(hora), EstadoTurno.PENDIENTE);
-                turnos.add(t);
-                guardar();
-                responder(e, 201, "{\"ok\":true,\"mensaje\":\"Turno reservado\",\"id\":" + t.id() + "}", "application/json; charset=utf-8"); return;
+                ReservaRequest solicitud = new ReservaRequest(
+                        datos.getOrDefault("paciente", ""), datos.getOrDefault("telefono", ""),
+                        Integer.parseInt(servicioId), datos.getOrDefault("fecha", ""),
+                        datos.getOrDefault("hora", ""));
+                reservar(e, solicitud);
+                return;
             }
             int id;
             try { id = Integer.parseInt(datos.getOrDefault("id", "")); }
@@ -144,6 +137,26 @@ public class App {
         error(e, 404, "Recurso inexistente");
     }
 
+
+    private void reservar(HttpExchange e, ReservaRequest solicitud) throws IOException {
+        String paciente = solicitud.paciente().trim();
+        String telefono = solicitud.telefono().trim();
+        if (paciente.length() < 2 || paciente.length() > 80 || paciente.contains("|")
+                || paciente.contains("\n") || paciente.contains("\r") || !telefono.matches("[0-9]{6,15}")) {
+            error(e, 400, "Datos de paciente o servicio inválidos");
+            return;
+        }
+        Servicio servicio = Servicio.porId(solicitud.servicioId());
+        if (!validarDisponibilidad(e, solicitud.fecha(), solicitud.hora(), servicio, null)) {
+            return;
+        }
+        Turno turno = new Turno(proximoId++, new Paciente(paciente, telefono), servicio,
+                LocalDate.parse(solicitud.fecha()), LocalTime.parse(solicitud.hora()), EstadoTurno.PENDIENTE);
+        turnos.add(turno);
+        guardar();
+        responder(e, 201, "{\"ok\":true,\"mensaje\":\"Turno reservado\",\"id\":" + turno.id() + "}",
+                "application/json; charset=utf-8");
+    }
 
     private boolean validarDisponibilidad(HttpExchange e, String fecha, String hora,
             Servicio servicio, Turno turnoActual) throws IOException {
