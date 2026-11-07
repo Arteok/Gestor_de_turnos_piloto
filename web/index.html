@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Prototipo académico de gestión de turnos de podología">
+  <title>Gestor de turnos piloto</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-content">
+      <div class="brand"><span class="brand-symbol" aria-hidden="true">✳</span><div><strong>Podología</strong><span>Gestión de turnos</span></div></div>
+      <span class="version">PILOTO · TPI MSII</span>
+    </div>
+  </header>
+  <main class="container">
+    <div class="intro"><div><p class="eyebrow">PROYECTO ACADÉMICO · JAVA VANILLA</p><h1>Gestor de turnos piloto</h1>
+      <p class="lead">Prototipo de reservas para un consultorio podológico. Datos de prueba: no ingresar información personal real.</p></div>
+    </div>
+    <section class="stats" aria-label="Estadísticas">
+      <div class="stat"><span>Turnos totales</span><strong id="total">0</strong></div>
+      <div class="stat"><span>Turnos pendientes</span><strong id="activos">0</strong></div>
+      <div class="stat"><span>Turnos cancelados</span><strong id="cancelados">0</strong></div>
+    </section>
+    <div class="workspace">
+      <section class="panel" aria-labelledby="titulo-reserva">
+        <div class="panel-heading"><span class="step">01</span><div><h2 id="titulo-reserva">Nueva reserva</h2><p>Elegí un servicio y un horario disponible.</p></div></div>
+        <form id="form-reserva">
+          <label for="paciente">Nombre del paciente</label><input id="paciente" name="paciente" minlength="2" maxlength="80" required placeholder="Ej.: Ana Ejemplo" autocomplete="off">
+          <label for="telefono">Teléfono (solo números)</label><input id="telefono" name="telefono" pattern="[0-9]{6,15}" required placeholder="Ej.: 2901123456" autocomplete="off">
+          <label for="servicioId">Servicio</label><select id="servicioId" name="servicioId" required><option value="">Cargando servicios...</option></select>
+          <div class="split"><div><label for="fecha">Fecha</label><input type="date" id="fecha" name="fecha" required></div><div><label for="hora">Horario</label><input type="time" id="hora" name="hora" min="09:00" max="17:30" step="1800" value="09:00" required></div></div>
+          <p class="hint">Atención de 09:00 a 18:00 · Turnos de 30 minutos · No se permiten solapamientos.</p>
+          <button type="submit" id="boton-crear" class="primary">Reservar turno</button>
+        </form>
+      </section>
+      <section class="panel panel-list" aria-labelledby="titulo-listado">
+        <div class="panel-heading"><span class="step">02</span><div><h2 id="titulo-listado">Agenda de turnos</h2><p>Consultá, cancelá o reprogramá una reserva.</p></div></div>
+        <div class="table-wrapper"><table><thead><tr><th>Paciente</th><th>Servicio</th><th>Fecha y hora</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="tabla-turnos"><tr><td colspan="5" class="empty">Cargando turnos…</td></tr></tbody></table></div>
+      </section>
+    </div>
+    <p id="mensaje" class="notice" role="status" aria-live="polite" hidden></p>
+    <footer>Proyecto demostrativo para Metodología de Sistemas II · Java SE + HTML, CSS y JavaScript sin frameworks.</footer>
+  </main>
+  <dialog id="modal-reprogramar"><form id="form-reprogramar" method="dialog"><h2>Reprogramar turno</h2><p>Elegí la nueva fecha y horario.</p>
+    <input type="hidden" name="id" id="reprogramar-id"><label for="reprogramar-fecha">Nueva fecha</label><input type="date" id="reprogramar-fecha" name="fecha" required>
+    <label for="reprogramar-hora">Nuevo horario</label><input type="time" id="reprogramar-hora" name="hora" min="09:00" max="17:30" step="1800" required>
+    <div class="modal-actions"><button type="button" id="cerrar-modal" class="secondary">Volver</button><button type="submit" class="primary">Guardar cambio</button></div>
+  </form></dialog>
+</body></html>
